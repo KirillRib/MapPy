@@ -13,4 +13,4 @@ rules:
 exceptions:
     Центральный федеральный округ:
         color: red
-        width: 1
+        width: 10
