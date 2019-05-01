@@ -69,7 +69,7 @@ def LoadData(fileName):
         
         return gj['features']
 
-def LoadStyles(fileName="C:\\Users\\kiril\\MapPy\\styles.yaml", encoding='utf-8'):
+def LoadStyles(fileName="C:\\Users\\79105\\Documents\\GitHub\\MapPy\\styles.yaml", encoding='utf-8'):
     with open(fileName, 'r') as stream:
         try:
             styles = yaml.load(stream)
@@ -201,7 +201,7 @@ def ToDrawPicture(x, y, z, P0, P1, pictureSize, activeLevelDictionary, styles):
 
 
 def load_obj(name ):
-    with open('C:\\Users\\kiril\\MapPy\\obj/' + name + '.pkl', 'rb') as f:
+    with open('C:\\Users\\79105\\Documents\\GitHub\\MapPy\\obj/' + name + '.pkl', 'rb') as f:
         return pickle.load(f)
 
 data = load_obj('data')
@@ -220,11 +220,11 @@ app = Sanic()
 
 @app.route("/")
 def output(request):
-	return response.file("C:\\Users\\kiril\\MapPy\\templates\\index.html")
+	return response.file("C:\\Users\\79105\\Documents\\GitHub\\MapPy\\templates\\index.html")
 	
 @app.route("/docs/images/favicon.ico")
 def output(request):
-	return response.file("C:\\Users\\kiril\\MapPy\\678074-map-256.ico")
+	return response.file("C:\\Users\\79105\\Documents\\GitHub\\MapPy\\678074-map-256.ico")
 
 
 
@@ -238,7 +238,7 @@ async def return_files_tut(request):
 	print(x, y, z, s)
 	
 	s = x+y+z
-	file_path = "C:\\Users\\kiril\\MapPy\\images\\" + s + ".png"
+	file_path = "C:\\Users\\79105\\Documents\\GitHub\\MapPy\\images\\" + s + ".png"
 	
 	if not os.path.exists(file_path):
 		image = ToDrawPicture(int(x), int(y), int(z), (90, 0), (200, 110), 256, {2: True, 3: True, 6: True}, styles)
