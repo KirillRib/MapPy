@@ -6,8 +6,14 @@ rules:
     3:
         color: red
         width: 2
+    4:
+        color: green
+        width: 1
+    5:
+        color: black
+        width: 1
     6:
-        color: red
+        color: yellow
         width: 1
 
 exceptions:
