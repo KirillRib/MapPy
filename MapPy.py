@@ -1,5 +1,5 @@
 import geojson
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from pyproj import Proj, transform
 import numpy as np
 from simplification.cutil import simplify_coords, simplify_coords_vw, simplify_coords_vwp
@@ -9,67 +9,28 @@ import timeit
 import yaml
 import pickle
 import os.path
-
+import sqlite3
 
 #Генератор изображений
 DefaultStyle = {'color': 'red', 'width': 2}
 sizeOfShortCoordinates = 0.001
 
-def LoadData(fileName):
-    with open(fileName, encoding='utf-8') as f:
-        gj = geojson.load(f)
-        
-        for feature in gj['features']:
-            
-            minP = [999.0, 999.0]
-            maxP = [0.0, 0.0]
-            centerP = [0.0, 0.0]
-            pointsNumber = 0.0
-            
-            
-            for a in feature['geometry']['coordinates']:
-                for b in a:
-                    for c in b:
-                        c = ToConvertCoordinate(c)
-                        
-                        #Поиск минимальных и максимальных координат объекта
-                        if c[0] < minP[0]:
-                            minP[0] = c[0]
-                        elif c[0] > maxP[0]:
-                            maxP[0] = c[0]
-                        if c[1] < minP[1]:
-                            minP[1] = c[1]
-                        elif c[1] > maxP[1]:
-                            maxP[1] = c[1]
-                        
-                        #Поиск цента масс
-                        centerP[0] += c[0]
-                        centerP[1] += c[1]
-                        pointsNumber += 1
-            
-            #Производит предварительное отсечение лишних вершин
-            coordinates_short = []
-            for a in feature['geometry']['coordinates']:
-                a_short = []
-                for b in a:
-                    a_short.append(simplify_coords(b, sizeOfShortCoordinates))
-                coordinates_short.append(a_short)
-            feature['geometry']['coordinates_short'] = coordinates_short   
-                    
-            
-            centerP[0] /= pointsNumber
-            centerP[1] /= pointsNumber
-            
-            feature['properties']['minP'] = minP
-            feature['properties']['maxP'] = maxP
-            feature['properties']['centerP'] = centerP
-            feature['properties']['w'] = maxP[0] - minP[0]
-            feature['properties']['h'] = maxP[1] - minP[1]
-            feature['properties']['density'] = pointsNumber / (maxP[0] - minP[0] + maxP[1] - minP[1]) / 2
-        
-        return gj['features']
+rectanglesList = []
 
-def LoadStyles(fileName="C:\\Users\\79105\\Documents\\GitHub\\MapPy\\styles.yaml", encoding='utf-8'):
+conn = sqlite3.connect("MapPy.db")
+cursor = conn.cursor()
+
+def save_obj(obj, name):
+    with open('obj/'+ name + '.pkl', 'wb') as f:
+        pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
+def load_obj(name ):
+    with open('obj/' + name + '.pkl', 'rb') as f:
+        return pickle.load(f)
+
+
+
+
+def LoadStyles(fileName="styles.yaml", encoding='utf-8'):
     with open(fileName, 'r') as stream:
         try:
             styles = yaml.load(stream)
@@ -107,16 +68,19 @@ def GetCurrentStyle(styles, levelStyle, feature):
             currentStyle['width'] = exception['width']
     return currentStyle
 
-def ToConvertCoordinate(c):
-    if c[0]<0:
-        c[0]=c[0]+360
-    c[0]-=30
-
-    c[0],c[1] = transform(Proj(init='epsg:4326'), Proj(init='epsg:3857'), c[0], c[1])
-    c[0]=90+c[0]/200000+15
-    c[1]=90-c[1]/200000
+def ToConvertCoordinates(coordinatesArray):
+    coordinatesArray = np.array(coordinatesArray)
     
-    return c
+    
+    coordinatesArray[coordinatesArray < 0] += 360
+    coordinatesArray -=30
+
+    
+    b=transform(proj_in, proj_out, coordinatesArray[:,0], coordinatesArray[:,1])
+    coordinatesArray[:,0] = 90+b[0]/200000+15
+    coordinatesArray[:,1] = 90-b[1]/100000
+    
+    return coordinatesArray
 
 
 
@@ -159,6 +123,18 @@ def ToDrawPolygon(draw, coordinates, size, p0, p1, colour="red", width=1):
     draw.polygon(points,outline = colour)
 
 
+def isIntersectionRectangleWithRectanglesArray(a, rectanglesArray):
+    intersection = False
+    for b in rectanglesArray:
+        intersection = isIntersectionRectangles(a, b)
+        if intersection:
+            break
+    return intersection
+    
+def isIntersectionRectangles(a, b):
+    return not (a[0][1] > b[1][1] or a[1][1] < b[0][1] or a[1][0] < b[0][0] or a[0][0] > b[1][0])
+    
+
 def ToDrawPicture(x, y, z, P0, P1, pictureSize, activeLevelDictionary, styles):
     p0 = [0, 0]
     p1 = [0, 0]
@@ -174,12 +150,18 @@ def ToDrawPicture(x, y, z, P0, P1, pictureSize, activeLevelDictionary, styles):
     
     size = W / (p1[0] - p0[0])
     
+    
+    availableLevelDictionary = {2: True, 3: True, 4: False, 5: False, 6: False}
+    for i in range(2, z+3):
+        availableLevelDictionary[i] = True
+    print(availableLevelDictionary)
+    
     image = Image.new("RGBA", (int(W),int(H)), (250,250,255,255))
     draw = ImageDraw.Draw(image)
     
     for i in reversed(range(len(data))):
         dataLevel = data[i]
-        if activeLevelDictionary.get(i)!=None and activeLevelDictionary[i]:
+        if activeLevelDictionary.get(i)!=None and activeLevelDictionary[i] and availableLevelDictionary[i]:
             currentStyle = GetLevelStyle(styles, i)
             
             for feature in dataLevel:
@@ -195,9 +177,61 @@ def ToDrawPicture(x, y, z, P0, P1, pictureSize, activeLevelDictionary, styles):
                     for b in a:
                         b = simplify_coords(b, 1 / size / 10)
                         ToDrawPolygon(draw, b, size, p0, p1, currentStyle['color'], currentStyle['width'])
+    
+    global rectanglesList
+    rectanglesList = []
+    
+    
+    norm_P0 = ToNormalizeCoordinates(copy.copy(p0), p0, size)
+    norm_P1 = ToNormalizeCoordinates(copy.copy(p1), p0, size)
+
+    sqlCities = "SELECT name, x, y FROM GeographicalObjects WHERE x > ? and x < ? and y > ? and y < ? and admin_level == ? ORDER BY priority DESC LIMIT 30;"
+    cursor.execute(sqlCities, (norm_P0[0], norm_P1[0], norm_P0[1], norm_P1[1], 1 + z))
+    DravAreaNames(draw, size, p0, cursor.fetchall(), 10)
+    
+    if z > 0:
+        sqlCities = "SELECT name, x, y FROM GeographicalObjects WHERE x > ? and x < ? and y > ? and y < ? and admin_level == 7 ORDER BY priority DESC LIMIT 30;"
+        cursor.execute(sqlCities, (norm_P0[0], norm_P1[0], norm_P0[1], norm_P1[1]))
+        DravCities(draw, size, p0, cursor.fetchall(), 4, 10)
+    
+    
     del(draw)
     
     return image
+
+def DravCities(draw, size, p0, names, R, textSize):
+    font = ImageFont.truetype("Roboto-Regular.ttf", textSize, encoding='UTF-8')
+
+    for name in names:
+        x = name[1]
+        y = name[2]
+        x, y = ToNormalizeCoordinates((x, y), p0, size)
+        
+        r = [[x-textSize/2, y-textSize/2], [x+textSize * len(name[0]) / 1.5, y+textSize]]
+        if isIntersectionRectangleWithRectanglesArray(r, rectanglesList):
+            #draw.rectangle([r[0][0], r[0][1], r[1][0], r[1][1]], outline=(64,128,255,128))       
+            continue
+        rectanglesList.append(r)
+        
+        draw.ellipse((x-R, y-R, x+R, y+R), fill=(64,128,255,128))
+        draw.text((x+textSize/4,y), name[0], font=font, fill=(107, 35, 178,0), encoding='UTF-8')
+
+
+def DravAreaNames(draw, size, p0, names, textSize):
+    font = ImageFont.truetype("Roboto-Regular.ttf", textSize, encoding='UTF-8')
+
+    for name in names:
+        x = name[1]
+        y = name[2]
+        x, y = ToNormalizeCoordinates((x, y), p0, size)
+        
+        r = [[x-textSize * len(name[0]) / 3, y-textSize/3], [x+textSize * len(name[0]) / 3, y+textSize/3*4]]
+        if isIntersectionRectangleWithRectanglesArray(r, rectanglesList):
+                
+            continue
+        rectanglesList.append(r)
+        #draw.rectangle([r[0][0], r[0][1], r[1][0], r[1][1]], outline=(64,128,255,128))   
+        draw.text((r[0][0],r[0][1]), name[0], font=font, fill=(54, 216, 86), encoding='UTF-8')
 
 
 def load_obj(name ):
@@ -241,7 +275,7 @@ async def return_files_tut(request):
 	file_path = "C:\\Users\\79105\\Documents\\GitHub\\MapPy\\images\\" + s + ".png"
 	
 	if not os.path.exists(file_path):
-		image = ToDrawPicture(int(x), int(y), int(z), (90, 0), (200, 110), 256, {2: True, 3: True, 6: True}, styles)
+		image = ToDrawPicture(int(x), int(y), int(z), (90, 0), (200, 110), 256, {2: True, 3: True, 4: True, 5: True, 6: True}, styles)
 		image.save(file_path, "PNG")		
 	
 	return await response.file(file_path)
